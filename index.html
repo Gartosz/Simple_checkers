@@ -1,0 +1,202 @@
+<html>
+    <meta charset="utf-8" />
+    <head>
+        <script src="/socket.io/socket.io.js"></script>
+        <style>
+            table{border-collapse: collapse;}
+            table td{width: 50px; height: 50px; border: 1px solid black; text-align: center; background-color: beige;}
+            table tr:nth-of-type(even) td:nth-of-type(odd){background-color: brown;}
+            table tr:nth-of-type(odd) td:nth-of-type(even){background-color: brown;}
+            .pionek_czarny {width: 40px; height: 40px; border-radius: 20px; background: black; border: 1px solid black;}
+            .pionek_biały {width: 40px; height: 40px; border-radius: 20px; background: white; border: 1px solid black;}
+            .damka_czarna {width: 40px; height: 40px; border-radius: 20px; background: black; border: 4px solid green;}
+            .damka_biała {width: 40px; height: 40px; border-radius: 20px; background: white; border: 4px solid blue;}
+        </style>
+    </head>
+
+    <body>
+        <table></table>
+        <button id="reset" onclick="new_game_request()">Nowa gra</button>
+        <ul id="msg"></ul>
+    </body>
+
+    <script>
+
+        var nick=prompt("Podaj swój nick");
+        var reset_button = document.getElementById('reset');
+        var socket = io();
+        var id=-1;
+        var plansza;
+        let s="";
+
+        function new_game(pola = [[],[]])
+        {
+
+            s="";
+            for(let i=0;i<8;i++)
+            {
+                s+="<tr>";
+                for(let j =0;j<8;j++)
+                    s+=`<td onclick='wybór(${j+i*8})'></td>`;
+                s+="</tr>";
+            }
+
+            document.querySelector("table").innerHTML=s;
+            s=0;
+            plansza = document.querySelectorAll("td");
+            
+            if(pola.flat().length)
+            {
+                console.log(pola, pola.length, [[1],[2]].length, pola.flat());
+                for(let i=0;i<plansza.length;i++)
+                {
+                    if(pola[0].includes(i))
+                    {
+                        plansza[i].innerHTML = `<div class='pionek_biały' onclick='ruch(${i},0)'></div>`;
+                        plansza[i].removeAttribute("onclick");
+                    }
+                    else if(pola[1].includes(i))
+                    {
+                        plansza[i].innerHTML = `<div class='pionek_czarny' onclick='ruch(${i},1)'></div>`;
+                        plansza[i].removeAttribute("onclick");
+                    }
+
+                }
+            }
+            else
+            {
+                let pionki = [[],[]];
+                for(let i=0;i<8*3;++i)
+                {
+                    if(window.getComputedStyle(plansza[i]).backgroundColor != window.getComputedStyle(plansza[0]).backgroundColor)
+                    {
+                        plansza[i].innerHTML = `<div class='pionek_czarny' onclick='ruch(${i},1)'></div>`;
+                        plansza[i].removeAttribute("onclick");
+                        if(!id)
+                            pionki[1].push(i);
+                    }
+                            
+                }
+                for(let i=8*5;i<plansza.length;++i)
+                {
+                    if(window.getComputedStyle(plansza[i]).backgroundColor != window.getComputedStyle(plansza[0]).backgroundColor)
+                    {
+                        plansza[i].innerHTML = `<div class='pionek_biały' onclick='ruch(${i},0)'></div>`;
+                        plansza[i].removeAttribute("onclick");
+                        if(!id)
+                            pionki[0].push(i);
+                    }
+                            
+                }
+                if(!id)
+                    socket.emit('indexes',pionki);
+            }
+            
+        }
+
+        function new_game_request()
+        {
+            if(id < 2)
+                socket.emit("new game",id);
+        }
+
+        socket.on("new game",function(data){
+            if(id == data)
+            {
+                if(confirm("Drugi gracz poprosił o rozpoczęcie nowej gry. Zgadzasz się?"))
+                {
+                    new_game();
+                    socket.emit("new game", "start new");
+                }
+            }
+            else if(data == "start new")
+                new_game();
+        }); 
+        
+        socket.on("id", function(data){
+            console.log("d",data,typeof(data));
+            let x;
+            if(typeof(data)=="string")
+                x = JSON.parse(data);
+            if(id == -1 || (typeof(data)=="string" && x['id'] && x['id']<=id))
+            {
+                
+                document.getElementById("msg").innerHTML = "";
+                socket.emit('nick', nick);
+                console.log(x);
+                id = x['id'];
+                new_game(x['pionki']);
+            }
+
+            else if(id > 2 && id > data)
+            {
+                console.log("2");
+                id--;
+            }
+
+
+            else if(id==2 && id > data)
+            {
+                console.log("3")
+                id = data==0?0:1;
+                alert("Gracz rozgrywający "+String(id==0?"białymi":"czarnymi")+" rozłączył się. Teraz ty kierujesz jego pionkami.");
+            }
+
+            console.log("id",id);
+        });
+
+        socket.on("chat message", function(msg){
+            document.getElementById("msg").insertAdjacentHTML("afterbegin", "<li>"+ msg + "</li>"); 
+        });
+
+        
+        function ruch(n,k)
+        {
+            console.log(k,id);
+            socket.emit("choose", JSON.stringify({check:k==id,player:id,number:n}))
+        }
+
+        socket.on("choose", function(n){
+            s=n;
+        });
+
+        function wybór(n)
+        {
+            if(s && s!=n)
+            {
+                socket.emit("move",JSON.stringify({pionek:s,ruch:n,typ:(String(plansza[s].querySelector("div").className).includes("pionek")?0:1)}));
+            }
+        }
+
+        socket.on("move", function(data){
+            let x = JSON.parse(data);
+            let a = String(plansza[x['pionek']].querySelector("div").className).includes("biał")?0:1;
+
+            if(x['typ'] && String(plansza[x['pionek']].querySelector("div").className).includes("pionek")?1:0)
+                plansza[x['pionek']].querySelector("div").className = "damka_"+(x['typ']==2?"czarna":"biała");
+
+            plansza[x['ruch']].removeAttribute("OnClick");
+            plansza[x['ruch']].innerHTML = plansza[x['pionek']].innerHTML;
+            plansza[x['ruch']].querySelector("div").setAttribute("onClick", `ruch(${x['ruch']}, ${a});`);
+            
+            plansza[x['pionek']].innerHTML = '';
+            plansza[x['pionek']].setAttribute("onClick", `wybór(${x['pionek']});`);
+            if(x['zbite'])
+            {
+                console.log(x['zbite']);
+                for(let zbity of x['zbite'])
+                {
+                    plansza[zbity].innerHTML = '';
+                    plansza[zbity].setAttribute("onClick", `wybór(${zbity});`);
+                }
+            }
+            s=0;
+        });
+
+        socket.on("get ids", function(){
+            console.log("BBB");
+            socket.emit("return id", id);
+        });
+        
+    </script>
+</html>
